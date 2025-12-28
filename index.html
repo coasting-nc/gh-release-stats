@@ -92,6 +92,21 @@
                         <button onclick="setVersionCount(-1)"
                             class="px-3 py-1 text-sm bg-blue-100 border border-blue-300 rounded-md hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium">All</button>
                     </div>
+
+                    <!-- Minimum Downloads Filter -->
+                    <div class="flex items-center justify-between pt-4 border-t border-gray-200">
+                        <label class="text-sm font-medium text-gray-700">Minimum downloads filter:</label>
+                        <div class="flex items-center space-x-4">
+                            <input type="checkbox" id="minDownloadsEnabled"
+                                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                onchange="updateMinDownloadsFilter()">
+                            <label for="minDownloadsEnabled" class="text-sm text-gray-600">Enable filter</label>
+                            <input type="number" id="minDownloadsInput" min="0" value="100" placeholder="Min downloads"
+                                class="w-28 px-3 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center"
+                                onchange="updateMinDownloadsFilter()">
+                            <span class="text-sm text-gray-500">downloads</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -205,19 +220,30 @@
 
         function updateChart(data) {
             const versionCountInput = document.getElementById('versionCountInput');
+            const minDownloadsEnabled = document.getElementById('minDownloadsEnabled').checked;
+            const minDownloadsInput = document.getElementById('minDownloadsInput');
+
+            let filteredData = data;
+
+            // Apply minimum downloads filter if enabled
+            if (minDownloadsEnabled) {
+                const minDownloads = parseInt(minDownloadsInput.value) || 0;
+                filteredData = data.filter(release => release.totalDownloads >= minDownloads);
+            }
+
             let lastN = parseInt(versionCountInput.value) || 6;
 
             // If -1 is selected (All), use all available releases
             if (lastN === -1) {
-                lastN = data.length;
+                lastN = filteredData.length;
             }
 
-            const releaseLabels = data.map(r => r.tagName).reverse().slice(-lastN);
-            const allAssetNames = [...new Set(data.flatMap(release => release.assets.map(asset => asset.name)))];
+            const releaseLabels = filteredData.map(r => r.tagName).reverse().slice(-lastN);
+            const allAssetNames = [...new Set(filteredData.flatMap(release => release.assets.map(asset => asset.name)))];
 
             const datasets = allAssetNames.map((assetName, index) => ({
                 label: assetName,
-                data: data.map(release => {
+                data: filteredData.map(release => {
                     const asset = release.assets.find(a => a.name === assetName);
                     return asset ? asset.downloadCount : 0;
                 }).reverse().slice(-lastN),
@@ -227,7 +253,7 @@
 
             datasets.unshift({
                 label: 'Total Downloads',
-                data: data.map(release => release.totalDownloads).reverse().slice(-lastN),
+                data: filteredData.map(release => release.totalDownloads).reverse().slice(-lastN),
                 borderColor: 'rgb(75, 192, 192)',
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
                 fill: true,
@@ -324,6 +350,12 @@
             }
 
             updateVersionCount();
+        }
+
+        function updateMinDownloadsFilter() {
+            if (releaseData) {
+                updateChart(releaseData);
+            }
         }
 
         function updateTable(data) {
