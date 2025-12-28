@@ -374,6 +374,355 @@ This document outlines the various types of data available through the GitHub AP
 
 ---
 
+## Authentication Implementation Guide
+
+To access protected GitHub API endpoints (like traffic data, private repositories, or to increase rate limits), you need to implement authentication. Here's a comprehensive guide on how to do this.
+
+### Why Authentication?
+
+**Benefits of Authentication:**
+- **Higher Rate Limits**: 5,000 requests/hour vs. 60 for unauthenticated
+- **Access to Traffic Data**: View repository traffic statistics (requires push access)
+- **Private Repositories**: Access data from private repos you have permission to view
+- **User-Specific Data**: Access user's own repositories and organizations
+
+### Authentication Methods
+
+#### 1. Personal Access Token (PAT) - Simplest Approach
+
+**Best for**: Personal use, testing, simple implementations
+
+**How it works:**
+1. User generates a Personal Access Token from GitHub Settings
+2. User inputs the token into the application
+3. Application includes token in API requests
+
+**Implementation Steps:**
+
+```html
+<!-- Add input field for token -->
+<div class="mb-4">
+    <label for="githubToken" class="block text-sm font-medium text-gray-700">
+        GitHub Personal Access Token (optional)
+    </label>
+    <input 
+        type="password" 
+        id="githubToken" 
+        placeholder="ghp_xxxxxxxxxxxx"
+        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+    >
+    <p class="mt-1 text-xs text-gray-500">
+        Required for traffic data. 
+        <a href="https://github.com/settings/tokens" target="_blank" class="text-blue-600 hover:underline">
+            Generate token here
+        </a>
+    </p>
+</div>
+```
+
+```javascript
+// Store token (consider using sessionStorage for security)
+function saveToken() {
+    const token = document.getElementById('githubToken').value;
+    if (token) {
+        sessionStorage.setItem('github_token', token);
+    }
+}
+
+// Use token in API calls
+async function fetchWithAuth(url) {
+    const token = sessionStorage.getItem('github_token');
+    const headers = {};
+    
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(url, { headers });
+    return response;
+}
+```
+
+**Token Permissions Needed:**
+- `public_repo`: For public repository data
+- `repo`: For private repository access
+- No special scopes needed for traffic data (just push access to the repo)
+
+**Pros:**
+- Simple to implement
+- No backend required
+- User has full control
+
+**Cons:**
+- User must manually create token
+- Token management is user's responsibility
+- Tokens stored in browser (security consideration)
+
+---
+
+#### 2. GitHub OAuth App - Better UX
+
+**Best for**: Public-facing applications, better user experience
+
+**How it works:**
+1. User clicks "Login with GitHub"
+2. Redirected to GitHub for authorization
+3. GitHub redirects back with authorization code
+4. Exchange code for access token
+5. Use token for API requests
+
+**Implementation Steps:**
+
+**Step 1: Register OAuth App**
+- Go to GitHub Settings → Developer settings → OAuth Apps
+- Click "New OAuth App"
+- Set Authorization callback URL (e.g., `https://yourdomain.com/callback`)
+- Note the Client ID and Client Secret
+
+**Step 2: Add Login Button**
+
+```html
+<button onclick="loginWithGitHub()" class="px-4 py-2 bg-gray-800 text-white rounded-md">
+    <svg class="inline w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+        <!-- GitHub icon SVG -->
+    </svg>
+    Login with GitHub
+</button>
+```
+
+**Step 3: Implement OAuth Flow**
+
+```javascript
+const CLIENT_ID = 'your_client_id_here';
+const REDIRECT_URI = 'https://yourdomain.com/callback';
+
+function loginWithGitHub() {
+    const scope = 'public_repo'; // or 'repo' for private repos
+    const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=${scope}`;
+    window.location.href = authUrl;
+}
+
+// Handle callback (on callback page)
+async function handleCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    
+    if (code) {
+        // Exchange code for token (requires backend)
+        const token = await exchangeCodeForToken(code);
+        sessionStorage.setItem('github_token', token);
+        // Redirect back to main page
+        window.location.href = '/';
+    }
+}
+
+// Backend endpoint needed to exchange code for token
+// (Cannot be done client-side due to client secret)
+async function exchangeCodeForToken(code) {
+    const response = await fetch('/api/github/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+    });
+    const data = await response.json();
+    return data.access_token;
+}
+```
+
+**Backend Example (Node.js/Express):**
+
+```javascript
+app.post('/api/github/token', async (req, res) => {
+    const { code } = req.body;
+    
+    const response = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            client_id: process.env.GITHUB_CLIENT_ID,
+            client_secret: process.env.GITHUB_CLIENT_SECRET,
+            code: code
+        })
+    });
+    
+    const data = await response.json();
+    res.json({ access_token: data.access_token });
+});
+```
+
+**Pros:**
+- Better user experience
+- Standard OAuth flow
+- Users don't need to manually create tokens
+
+**Cons:**
+- Requires backend server
+- More complex implementation
+- Need to manage client secret securely
+
+---
+
+#### 3. GitHub App - Most Powerful
+
+**Best for**: Advanced features, organization-wide installations
+
+**How it works:**
+- Similar to OAuth but with more granular permissions
+- Can be installed on organizations
+- Better for long-term, production applications
+
+**Implementation:**
+- Follow GitHub's [GitHub Apps documentation](https://docs.github.com/en/developers/apps/building-github-apps)
+- More complex but offers fine-grained permissions
+
+---
+
+### Security Best Practices
+
+#### Token Storage
+
+**❌ Don't:**
+- Store tokens in localStorage (vulnerable to XSS)
+- Commit tokens to version control
+- Send tokens in URL parameters
+- Log tokens to console in production
+
+**✅ Do:**
+- Use sessionStorage for temporary storage
+- Clear tokens on logout
+- Use HTTPS only
+- Implement token expiration
+- Consider using httpOnly cookies (requires backend)
+
+#### Implementation Example
+
+```javascript
+// Secure token management
+const TokenManager = {
+    set(token) {
+        // Use sessionStorage (cleared when tab closes)
+        sessionStorage.setItem('gh_token', token);
+        // Set expiration time
+        const expiry = Date.now() + (3600 * 1000); // 1 hour
+        sessionStorage.setItem('gh_token_expiry', expiry);
+    },
+    
+    get() {
+        const expiry = sessionStorage.getItem('gh_token_expiry');
+        if (expiry && Date.now() > parseInt(expiry)) {
+            this.clear();
+            return null;
+        }
+        return sessionStorage.getItem('gh_token');
+    },
+    
+    clear() {
+        sessionStorage.removeItem('gh_token');
+        sessionStorage.removeItem('gh_token_expiry');
+    },
+    
+    isValid() {
+        return this.get() !== null;
+    }
+};
+```
+
+### User Experience Considerations
+
+#### Progressive Enhancement
+
+```javascript
+// Show auth-dependent features only when authenticated
+function updateUIForAuth() {
+    const isAuthenticated = TokenManager.isValid();
+    
+    // Show/hide traffic data section
+    document.getElementById('trafficSection').style.display = 
+        isAuthenticated ? 'block' : 'none';
+    
+    // Update button text
+    const loginBtn = document.getElementById('loginBtn');
+    if (isAuthenticated) {
+        loginBtn.textContent = 'Logout';
+        loginBtn.onclick = logout;
+    } else {
+        loginBtn.textContent = 'Login for More Data';
+        loginBtn.onclick = loginWithGitHub;
+    }
+}
+```
+
+#### Clear Messaging
+
+```html
+<!-- Show why authentication is needed -->
+<div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
+    <h3 class="text-sm font-medium text-blue-800">
+        🔒 Authentication Required
+    </h3>
+    <p class="text-sm text-blue-700 mt-1">
+        Login with GitHub to access:
+    </p>
+    <ul class="text-sm text-blue-700 mt-2 ml-4 list-disc">
+        <li>Repository traffic statistics</li>
+        <li>Higher API rate limits (5,000/hour)</li>
+        <li>Private repository data</li>
+    </ul>
+    <button onclick="loginWithGitHub()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-md">
+        Login with GitHub
+    </button>
+</div>
+```
+
+### Recommended Implementation Path
+
+For this project, we recommend:
+
+1. **Phase 1: Personal Access Token**
+   - Add optional token input field
+   - Store in sessionStorage
+   - Use for traffic data if provided
+   - Simple, no backend needed
+
+2. **Phase 2: OAuth App (if needed)**
+   - Implement if user feedback indicates PAT is too complex
+   - Requires setting up a simple backend
+   - Better UX for non-technical users
+
+3. **Phase 3: Enhanced Features**
+   - Add token validation
+   - Implement token refresh
+   - Add logout functionality
+   - Show authentication status
+
+### Testing Authentication
+
+```javascript
+// Test if token works
+async function validateToken(token) {
+    try {
+        const response = await fetch('https://api.github.com/user', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            console.log('Authenticated as:', user.login);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Token validation failed:', error);
+        return false;
+    }
+}
+```
+
+---
+
 ## Feature Ideas by Priority
 
 ### 🔥 High Priority (High Value, Low Complexity)

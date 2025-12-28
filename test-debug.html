@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Debug Test</title>
+</head>
+
+<body>
+    <h1>Debug Test</h1>
+    <div id="output"></div>
+
+    <script>
+        const output = document.getElementById('output');
+
+        // Test URL parameter parsing
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        const repo = getUrlParameter('repo');
+        const versions = getUrlParameter('versions');
+        const minDownloads = getUrlParameter('minDownloads');
+        const filterEnabled = getUrlParameter('filterEnabled');
+
+        output.innerHTML = `
+            <h2>URL Parameters:</h2>
+            <p>repo: ${repo}</p>
+            <p>versions: ${versions}</p>
+            <p>minDownloads: ${minDownloads}</p>
+            <p>filterEnabled: ${filterEnabled}</p>
+            <p>filterEnabled type: ${typeof filterEnabled}</p>
+            <p>filterEnabled === 'true': ${filterEnabled === 'true'}</p>
+            <p>filterEnabled === null: ${filterEnabled === null}</p>
+            <p>filterEnabled === '': ${filterEnabled === ''}</p>
+        `;
+
+        // Test GitHub API
+        if (repo) {
+            output.innerHTML += '<h2>Testing GitHub API...</h2>';
+            fetch(`https://api.github.com/repos/${repo}/releases`)
+                .then(response => {
+                    output.innerHTML += `<p>Response status: ${response.status}</p>`;
+                    output.innerHTML += `<p>Response ok: ${response.ok}</p>`;
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            output.innerHTML += `<p>Error response: ${text}</p>`;
+                            throw new Error('Failed to fetch releases');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    output.innerHTML += `<p>Success! Got ${data.length} releases</p>`;
+                    output.innerHTML += `<pre>${JSON.stringify(data[0], null, 2).substring(0, 500)}...</pre>`;
+                })
+                .catch(error => {
+                    output.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+                    console.error('Full error:', error);
+                });
+        }
+    </script>
+</body>
+
+</html>

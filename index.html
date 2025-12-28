@@ -5,11 +5,15 @@
     URL Parameters:
     - repo: Specify a GitHub repository to automatically load (e.g., ?repo=owner/repo)
     - versions: Set the number of versions to display (e.g., &versions=10 or &versions=all)
+    - minDownloads: Set minimum downloads filter threshold (e.g., &minDownloads=50)
+    - filterEnabled: Enable/disable the filter (e.g., &filterEnabled=true or &filterEnabled=false)
     
     Example URLs:
     - index.html?repo=coasting-nc/LMUFFB
     - index.html?repo=coasting-nc/LMUFFB&versions=10
     - index.html?repo=coasting-nc/LMUFFB&versions=all
+    - index.html?repo=coasting-nc/LMUFFB&minDownloads=10&filterEnabled=true
+    - index.html?repo=coasting-nc/LMUFFB&versions=15&minDownloads=5&filterEnabled=true
 -->
 <html lang="en">
 
@@ -58,7 +62,7 @@
         <div class="flex flex-col space-y-4 sm:flex-row sm:space-y-0 sm:space-x-4 mb-6 justify-center">
             <input type="text" id="repoInput" placeholder="ramiawar/dataline"
                 class="flex-shrink px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            <button onclick="trackReleases()"
+            <button onclick="trackReleasesAndUpdateURL()"
                 class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Track
                 Releases</button>
         </div>
@@ -97,11 +101,11 @@
                     <div class="flex items-center justify-between pt-4 border-t border-gray-200">
                         <label class="text-sm font-medium text-gray-700">Minimum downloads filter:</label>
                         <div class="flex items-center space-x-4">
-                            <input type="checkbox" id="minDownloadsEnabled"
+                            <input type="checkbox" id="minDownloadsEnabled" checked
                                 class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                 onchange="updateMinDownloadsFilter()">
                             <label for="minDownloadsEnabled" class="text-sm text-gray-600">Enable filter</label>
-                            <input type="number" id="minDownloadsInput" min="0" value="100" placeholder="Min downloads"
+                            <input type="number" id="minDownloadsInput" min="0" value="5" placeholder="Min downloads"
                                 class="w-28 px-3 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center"
                                 onchange="updateMinDownloadsFilter()">
                             <span class="text-sm text-gray-500">downloads</span>
@@ -116,6 +120,57 @@
                 <canvas id="releaseChart"></canvas>
             </div>
         </div>
+
+        <!-- Traffic Data Section -->
+        <div id="trafficSection" class="mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-gray-900">Repository Traffic (Last 14 Days)</h2>
+                <span class="text-sm text-gray-500 italic">Requires repository push access</span>
+            </div>
+
+            <!-- Authentication Required Message -->
+            <div id="trafficAuthMessage" class="mb-6 p-6 bg-blue-50 border border-blue-200 rounded-md">
+                <div class="flex items-start">
+                    <svg class="w-6 h-6 text-blue-600 mr-3 flex-shrink-0" fill="none" stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                        </path>
+                    </svg>
+                    <div>
+                        <h3 class="text-sm font-medium text-blue-800 mb-1">Authentication Required</h3>
+                        <p class="text-sm text-blue-700 mb-2">
+                            Traffic data (page views and popular paths) requires GitHub authentication with push access
+                            to the repository.
+                        </p>
+                        <p class="text-sm text-blue-700">
+                            See the <a href="FUTURE_FEATURES.md#authentication-implementation-guide" target="_blank"
+                                class="underline font-medium">Authentication Implementation Guide</a> for setup
+                            instructions.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page Views Chart -->
+            <div id="trafficChartsContainer" class="hidden">
+                <div class="mb-6 p-4 bg-white border border-gray-300 rounded-md">
+                    <h3 class="text-lg font-medium text-gray-800 mb-3">Page Views & Unique Visitors</h3>
+                    <div class="h-64">
+                        <canvas id="trafficChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Popular Paths Chart -->
+                <div class="mb-6 p-4 bg-white border border-gray-300 rounded-md">
+                    <h3 class="text-lg font-medium text-gray-800 mb-3">Top 10 Most Visited Paths</h3>
+                    <div class="h-80">
+                        <canvas id="popularPathsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="tableSection" class="hidden">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-semibold text-gray-900">Release Data</h2>
@@ -158,7 +213,10 @@
 
     <script>
         let chart;
+        let trafficChart;
+        let popularPathsChart;
         let releaseData;
+        let isLoadingFromURL = false; // Flag to prevent URL updates during initial load
 
         // Parse URL parameters
         function getUrlParameter(name) {
@@ -170,27 +228,102 @@
         window.addEventListener('DOMContentLoaded', function () {
             const repoParam = getUrlParameter('repo');
             const versionsParam = getUrlParameter('versions');
+            const minDownloadsParam = getUrlParameter('minDownloads');
+            const filterEnabledParam = getUrlParameter('filterEnabled');
+
 
             if (repoParam) {
+                console.log('Loading from URL parameters:', { repo: repoParam, versions: versionsParam, minDownloads: minDownloadsParam, filterEnabled: filterEnabledParam });
+                isLoadingFromURL = true; // Set flag to prevent URL updates during load
+
                 document.getElementById('repoInput').value = repoParam;
 
                 // Set version count if specified
                 if (versionsParam) {
                     const versionCount = versionsParam.toLowerCase() === 'all' ? -1 : parseInt(versionsParam);
                     if (!isNaN(versionCount)) {
+                        console.log('Setting version count:', versionCount);
                         setVersionCount(versionCount);
                     }
                 }
 
+                // Set minimum downloads filter if specified
+                if (minDownloadsParam) {
+                    const minDownloads = parseInt(minDownloadsParam);
+                    if (!isNaN(minDownloads)) {
+                        console.log('Setting min downloads:', minDownloads);
+                        document.getElementById('minDownloadsInput').value = minDownloads;
+                    }
+                }
+
+                // Set filter enabled state if specified
+                if (filterEnabledParam !== null && filterEnabledParam !== '') {
+                    const enabled = filterEnabledParam.toLowerCase() === 'true';
+                    console.log('Setting filter enabled:', enabled);
+                    document.getElementById('minDownloadsEnabled').checked = enabled;
+                }
+
                 // Automatically track releases
-                trackReleases();
+                console.log('Calling trackReleases()...');
+                trackReleases()
+                    .then(() => {
+                        console.log('trackReleases() completed successfully');
+                        isLoadingFromURL = false; // Clear flag after load completes
+                    })
+                    .catch((error) => {
+                        console.error('Error loading from URL:', error);
+                        console.error('Error stack:', error.stack);
+                        isLoadingFromURL = false; // Clear flag even on error
+                    });
             }
         });
+
+        // Function to update URL with current settings
+        function updateURL() {
+            // Don't update URL if we're loading from URL parameters
+            if (isLoadingFromURL) return;
+
+            const repo = document.getElementById('repoInput').value;
+            if (!repo) return; // Don't update URL if no repo is set
+
+            const versionCountInput = document.getElementById('versionCountInput');
+            const versionCount = parseInt(versionCountInput.value);
+            const minDownloadsInput = document.getElementById('minDownloadsInput');
+            const minDownloads = parseInt(minDownloadsInput.value);
+            const filterEnabled = document.getElementById('minDownloadsEnabled').checked;
+
+            // Build URL parameters
+            const params = new URLSearchParams();
+            params.set('repo', repo);
+
+            // Add version count (handle "All" case which is -1)
+            if (versionCount === -1) {
+                params.set('versions', 'all');
+            } else if (!isNaN(versionCount)) {
+                params.set('versions', versionCount);
+            }
+
+            // Add filter settings
+            if (!isNaN(minDownloads)) {
+                params.set('minDownloads', minDownloads);
+            }
+            params.set('filterEnabled', filterEnabled);
+
+            // Update URL without reloading the page
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            window.history.pushState({}, '', newUrl);
+        }
+
+        // Wrapper function for manual Track Releases button click
+        async function trackReleasesAndUpdateURL() {
+            await trackReleases();
+            updateURL();
+        }
 
         document.getElementById('repoInput').addEventListener('keypress', function (event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
-                trackReleases();
+                trackReleasesAndUpdateURL();
             }
         });
 
@@ -322,6 +455,9 @@
                 if (value > 0 && value <= 20) {
                     slider.value = value;
                 }
+
+                // Update URL with new settings
+                updateURL();
             }
         }
 
@@ -355,6 +491,8 @@
         function updateMinDownloadsFilter() {
             if (releaseData) {
                 updateChart(releaseData);
+                // Update URL with new filter settings
+                updateURL();
             }
         }
 
@@ -376,6 +514,160 @@
             });
         }
 
+        async function fetchTrafficData(repo) {
+            try {
+                // Fetch page views
+                const viewsUrl = `https://api.github.com/repos/${repo}/traffic/views`;
+                const viewsResponse = await fetch(viewsUrl);
+
+                // Fetch popular paths
+                const pathsUrl = `https://api.github.com/repos/${repo}/traffic/popular/paths`;
+                const pathsResponse = await fetch(pathsUrl);
+
+                let trafficData = null;
+
+                if (viewsResponse.ok && pathsResponse.ok) {
+                    const views = await viewsResponse.json();
+                    const paths = await pathsResponse.json();
+
+                    trafficData = {
+                        views: views,
+                        paths: paths
+                    };
+                }
+
+                return trafficData;
+            } catch (error) {
+                console.log('Traffic data not available (requires authentication):', error);
+                return null;
+            }
+        }
+
+        function updateTrafficChart(trafficData) {
+            if (!trafficData || !trafficData.views) return;
+
+            const views = trafficData.views;
+            const labels = views.views.map(v => new Date(v.timestamp).toLocaleDateString());
+            const viewCounts = views.views.map(v => v.count);
+            const uniqueCounts = views.views.map(v => v.uniques);
+
+            if (trafficChart) trafficChart.destroy();
+
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            trafficChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total Views',
+                            data: viewCounts,
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Unique Visitors',
+                            data: uniqueCounts,
+                            borderColor: 'rgb(16, 185, 129)',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Count'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: `Total: ${views.count} views, ${views.uniques} unique visitors`
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePopularPathsChart(trafficData) {
+            if (!trafficData || !trafficData.paths || trafficData.paths.length === 0) return;
+
+            const paths = trafficData.paths.slice(0, 10); // Top 10
+            const labels = paths.map(p => p.path);
+            const viewCounts = paths.map(p => p.count);
+            const uniqueCounts = paths.map(p => p.uniques);
+
+            if (popularPathsChart) popularPathsChart.destroy();
+
+            const ctx = document.getElementById('popularPathsChart').getContext('2d');
+            popularPathsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total Views',
+                            data: viewCounts,
+                            backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                            borderColor: 'rgb(59, 130, 246)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Unique Visitors',
+                            data: uniqueCounts,
+                            backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                            borderColor: 'rgb(16, 185, 129)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Views'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Most Visited Repository Paths'
+                        }
+                    }
+                }
+            });
+        }
+
         async function trackReleases() {
             const repo = document.getElementById('repoInput').value;
             if (!repo) {
@@ -384,6 +676,7 @@
             }
 
             try {
+                // Fetch release data
                 const releases = await fetchReleases(repo);
                 releaseData = processReleaseData(releases);
                 updateChart(releaseData);
@@ -392,6 +685,20 @@
                 // Show the chart and table sections
                 document.getElementById('chartSection').classList.remove('hidden');
                 document.getElementById('tableSection').classList.remove('hidden');
+
+                // Try to fetch traffic data (may fail if no auth)
+                const trafficData = await fetchTrafficData(repo);
+                if (trafficData) {
+                    updateTrafficChart(trafficData);
+                    updatePopularPathsChart(trafficData);
+                    // Hide auth message and show charts
+                    document.getElementById('trafficAuthMessage').classList.add('hidden');
+                    document.getElementById('trafficChartsContainer').classList.remove('hidden');
+                } else {
+                    // Show auth message and hide charts
+                    document.getElementById('trafficAuthMessage').classList.remove('hidden');
+                    document.getElementById('trafficChartsContainer').classList.add('hidden');
+                }
             } catch (error) {
                 console.error('Error:', error);
                 alert('Failed to fetch release data. Check the console for details.');
