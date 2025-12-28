@@ -361,7 +361,14 @@
             // Apply minimum downloads filter if enabled
             if (minDownloadsEnabled) {
                 const minDownloads = parseInt(minDownloadsInput.value) || 0;
+                // Always include the latest release (first element), even if below threshold
+                const latestRelease = data.length > 0 ? data[0] : null;
                 filteredData = data.filter(release => release.totalDownloads >= minDownloads);
+
+                // If the latest release was filtered out, add it back at the beginning
+                if (latestRelease && !filteredData.includes(latestRelease)) {
+                    filteredData.unshift(latestRelease);
+                }
             }
 
             let lastN = parseInt(versionCountInput.value) || 6;
