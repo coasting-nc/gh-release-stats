@@ -1,4 +1,16 @@
 <!DOCTYPE html>
+<!--
+    GitHub Release Statistics Tracker
+    
+    URL Parameters:
+    - repo: Specify a GitHub repository to automatically load (e.g., ?repo=owner/repo)
+    - versions: Set the number of versions to display (e.g., &versions=10 or &versions=all)
+    
+    Example URLs:
+    - index.html?repo=coasting-nc/LMUFFB
+    - index.html?repo=coasting-nc/LMUFFB&versions=10
+    - index.html?repo=coasting-nc/LMUFFB&versions=all
+-->
 <html lang="en">
 
 <head>
@@ -132,6 +144,33 @@
     <script>
         let chart;
         let releaseData;
+
+        // Parse URL parameters
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        // Initialize from URL parameters on page load
+        window.addEventListener('DOMContentLoaded', function () {
+            const repoParam = getUrlParameter('repo');
+            const versionsParam = getUrlParameter('versions');
+
+            if (repoParam) {
+                document.getElementById('repoInput').value = repoParam;
+
+                // Set version count if specified
+                if (versionsParam) {
+                    const versionCount = versionsParam.toLowerCase() === 'all' ? -1 : parseInt(versionsParam);
+                    if (!isNaN(versionCount)) {
+                        setVersionCount(versionCount);
+                    }
+                }
+
+                // Automatically track releases
+                trackReleases();
+            }
+        });
 
         document.getElementById('repoInput').addEventListener('keypress', function (event) {
             if (event.key === 'Enter') {
