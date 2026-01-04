@@ -7,6 +7,7 @@
     - versions: Set the number of versions to display (e.g., &versions=10 or &versions=all)
     - minDownloads: Set minimum downloads filter threshold (e.g., &minDownloads=50)
     - filterEnabled: Enable/disable the filter (e.g., &filterEnabled=true or &filterEnabled=false)
+    - maxAge: Set maximum age of releases to fetch in days (e.g., &maxAge=90 or &maxAge=-1 for unlimited)
     
     Example URLs:
     - index.html?repo=coasting-nc/LMUFFB
@@ -14,6 +15,8 @@
     - index.html?repo=coasting-nc/LMUFFB&versions=all
     - index.html?repo=coasting-nc/LMUFFB&minDownloads=10&filterEnabled=true
     - index.html?repo=coasting-nc/LMUFFB&versions=15&minDownloads=5&filterEnabled=true
+    - index.html?repo=coasting-nc/LMUFFB&maxAge=90
+    - index.html?repo=coasting-nc/LMUFFB&maxAge=-1
 -->
 <html lang="en">
 
@@ -109,6 +112,39 @@
                                 class="w-28 px-3 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center"
                                 onchange="updateMinDownloadsFilter()">
                             <span class="text-sm text-gray-500">downloads</span>
+                        </div>
+                    </div>
+
+                    <!-- Max Age Filter -->
+                    <div class="flex flex-col space-y-2 pt-4 border-t border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <label class="text-sm font-medium text-gray-700">Maximum release age to fetch:</label>
+                            <div class="flex items-center space-x-4">
+                                <input type="number" id="maxAgeInput" min="-1" value="-1" placeholder="Days"
+                                    class="w-28 px-3 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center"
+                                    onchange="updateMaxAgeFilter()">
+                                <span class="text-sm text-gray-500">days (-1 = unlimited)</span>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="text-sm text-gray-600 mr-2">Quick select:</span>
+                            <button onclick="setMaxAge(14)"
+                                class="px-3 py-1 text-sm bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">2
+                                weeks</button>
+                            <button onclick="setMaxAge(30)"
+                                class="px-3 py-1 text-sm bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">1
+                                month</button>
+                            <button onclick="setMaxAge(90)"
+                                class="px-3 py-1 text-sm bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">3
+                                months</button>
+                            <button onclick="setMaxAge(180)"
+                                class="px-3 py-1 text-sm bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">6
+                                months</button>
+                            <button onclick="setMaxAge(365)"
+                                class="px-3 py-1 text-sm bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">1
+                                year</button>
+                            <button onclick="setMaxAge(-1)"
+                                class="px-3 py-1 text-sm bg-blue-100 border border-blue-300 rounded-md hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium">Unlimited</button>
                         </div>
                     </div>
                 </div>
@@ -230,10 +266,11 @@
             const versionsParam = getUrlParameter('versions');
             const minDownloadsParam = getUrlParameter('minDownloads');
             const filterEnabledParam = getUrlParameter('filterEnabled');
+            const maxAgeParam = getUrlParameter('maxAge');
 
 
             if (repoParam) {
-                console.log('Loading from URL parameters:', { repo: repoParam, versions: versionsParam, minDownloads: minDownloadsParam, filterEnabled: filterEnabledParam });
+                console.log('Loading from URL parameters:', { repo: repoParam, versions: versionsParam, minDownloads: minDownloadsParam, filterEnabled: filterEnabledParam, maxAge: maxAgeParam });
                 isLoadingFromURL = true; // Set flag to prevent URL updates during load
 
                 document.getElementById('repoInput').value = repoParam;
@@ -261,6 +298,15 @@
                     const enabled = filterEnabledParam.toLowerCase() === 'true';
                     console.log('Setting filter enabled:', enabled);
                     document.getElementById('minDownloadsEnabled').checked = enabled;
+                }
+
+                // Set max age if specified
+                if (maxAgeParam !== null && maxAgeParam !== '') {
+                    const maxAge = parseInt(maxAgeParam);
+                    if (!isNaN(maxAge)) {
+                        console.log('Setting max age:', maxAge);
+                        document.getElementById('maxAgeInput').value = maxAge;
+                    }
                 }
 
                 // Automatically track releases
@@ -291,6 +337,8 @@
             const minDownloadsInput = document.getElementById('minDownloadsInput');
             const minDownloads = parseInt(minDownloadsInput.value);
             const filterEnabled = document.getElementById('minDownloadsEnabled').checked;
+            const maxAgeInput = document.getElementById('maxAgeInput');
+            const maxAge = parseInt(maxAgeInput.value);
 
             // Build URL parameters
             const params = new URLSearchParams();
@@ -308,6 +356,11 @@
                 params.set('minDownloads', minDownloads);
             }
             params.set('filterEnabled', filterEnabled);
+
+            // Add max age setting
+            if (!isNaN(maxAge)) {
+                params.set('maxAge', maxAge);
+            }
 
             // Update URL without reloading the page
             const newUrl = `${window.location.pathname}?${params.toString()}`;
@@ -328,10 +381,73 @@
         });
 
         async function fetchReleases(repo) {
-            const url = `https://api.github.com/repos/${repo}/releases`;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('Failed to fetch releases');
-            return await response.json();
+            const maxAgeInput = document.getElementById('maxAgeInput');
+            const maxAgeDays = parseInt(maxAgeInput.value);
+
+            let allReleases = [];
+            let page = 1;
+            const perPage = 100; // Maximum allowed by GitHub API
+            let hasMore = true;
+
+            // Calculate cutoff date if maxAge is set (and not -1 for unlimited)
+            let cutoffDate = null;
+            if (maxAgeDays > 0) {
+                cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - maxAgeDays);
+            }
+
+            console.log(`Fetching releases with maxAge: ${maxAgeDays} days`, cutoffDate ? `(cutoff: ${cutoffDate.toISOString()})` : '(unlimited)');
+
+            while (hasMore) {
+                const url = `https://api.github.com/repos/${repo}/releases?per_page=${perPage}&page=${page}`;
+                console.log(`Fetching page ${page}...`);
+
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to fetch releases');
+
+                const releases = await response.json();
+
+                if (releases.length === 0) {
+                    // No more releases
+                    hasMore = false;
+                    break;
+                }
+
+                // If we have a cutoff date, filter releases and stop if we've gone past it
+                if (cutoffDate) {
+                    const filteredReleases = [];
+                    for (const release of releases) {
+                        const releaseDate = new Date(release.published_at);
+                        if (releaseDate >= cutoffDate) {
+                            filteredReleases.push(release);
+                        } else {
+                            // We've reached releases older than our cutoff, stop fetching
+                            hasMore = false;
+                            break;
+                        }
+                    }
+                    allReleases = allReleases.concat(filteredReleases);
+
+                    // If we found releases older than cutoff, we're done
+                    if (!hasMore) {
+                        console.log(`Stopped at page ${page} - reached cutoff date`);
+                        break;
+                    }
+                } else {
+                    // No age filter, add all releases
+                    allReleases = allReleases.concat(releases);
+                }
+
+                // If we got fewer releases than requested, we've reached the end
+                if (releases.length < perPage) {
+                    hasMore = false;
+                } else {
+                    page++;
+                }
+            }
+
+            console.log(`Fetched ${allReleases.length} releases total`);
+            return allReleases;
         }
 
         function processReleaseData(releases) {
@@ -502,6 +618,23 @@
                 updateURL();
             }
         }
+
+        async function updateMaxAgeFilter() {
+            // When max age changes, we need to re-fetch releases
+            const repo = document.getElementById('repoInput').value;
+            if (repo) {
+                await trackReleases();
+            }
+            // Update URL with new settings
+            updateURL();
+        }
+
+        function setMaxAge(days) {
+            const input = document.getElementById('maxAgeInput');
+            input.value = days;
+            updateMaxAgeFilter();
+        }
+
 
         function updateTable(data) {
             const tableBody = document.querySelector('#releaseTable tbody');
